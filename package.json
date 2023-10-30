@@ -3,7 +3,7 @@
   "version": "1.1.0",
   "main": "index.js",
   "repository": {
-    "url": "git@github.com:wyozi/contextual-qa-checklist-action.git",
+    "url": "git@github.com:n8n-io/contextual-qa-checklist-action.git",
     "type": "git"
   },
   "author": "wyozi <joonasmertanen@gmail.com>",
