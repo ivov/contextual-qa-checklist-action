@@ -91,51 +91,69 @@ async function run() {
     }
   );
 
-  const existingComment = (
-    await client.rest.issues.listComments({
-      owner: owner,
-      repo: repo,
-      issue_number: number,
-    })
-  ).data.find((comment) => comment.body.includes(footer));
-
-  if (applicableChecklistPaths.length > 0) {
-    const body = [
-      `${header}\n\n`,
-      ...applicableChecklistPaths.map(([path, items]) =>
-        formatItemsForPath(
-          !!existingComment ? existingComment.body : undefined,
-          [path, items]
-        )
-      ),
-      `\n${footer}`,
-    ].join("");
-
-    if (existingComment) {
-      await client.rest.issues.updateComment({
-        owner: owner,
-        repo: repo,
-        comment_id: existingComment.id,
-        body,
-      });
-    } else {
-      await client.rest.issues.createComment({
-        owner: owner,
-        repo: repo,
-        issue_number: number,
-        body,
-      });
-    }
-  } else {
-    if (existingComment) {
-      await client.rest.issues.deleteComment({
-        owner: owner,
-        repo: repo,
-        comment_id: existingComment.id,
-      });
-    }
+  if (applicableChecklistPaths.length === 0) {
     console.log("No paths were modified that match checklist paths");
+    return;
   }
+
+  // retrieve PR body
+
+  let prNumber = context.payload.pull_request?.number;
+  if (!prNumber) {
+    // not a pull_request event, try and find the PR number from the commit sha
+    const { data: pullRequests } =
+        await client.rest.repos.listPullRequestsAssociatedWithCommit({
+            owner,
+            repo,
+            commit_sha: context.sha,
+        });
+
+    const candidatePullRequests = pullRequests.filter(
+        (pr) =>
+            context.payload.ref === `refs/heads/${pr.head.ref}` &&
+            pr.state === "open",
+    );
+
+    prNumber = candidatePullRequests?.[0]?.number;
+  }
+
+  if (!prNumber) {
+    core.setFailed(
+      `No open pull request found for ${context.eventName}, ${context.sha}`,
+    );
+    return;
+  }
+
+  const { data } = await client.rest.pulls.get({
+    owner,
+    repo,
+    pull_number: prNumber,
+  });
+
+  let prBody = data.body;
+
+  // append content
+
+  const contentToAppend = [
+    `${header}\n\n`,
+    ...applicableChecklistPaths.map(([path, items]) =>
+      formatItemsForPath(
+        // !!existingComment ? existingComment.body : undefined,
+        prBody,
+        [path, items]
+      )
+    ),
+    `\n${footer}`,
+  ].join("");
+
+  prBody += `\n\n${contentToAppend}`;
+
+  await client.rest.pulls.update({
+    owner,
+    repo,
+    body: prBody,
+    pull_number: prNumber,
+  });
 }
 
 run().catch((err) => core.setFailed(err.message));
